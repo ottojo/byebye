@@ -132,8 +132,16 @@ func translate(path string) {
 	isInCodeBlock := false
 	isFirstTableRow := true
 	currentBaseIndent := -1
+	startComments := true
 
 	for i, _ := range lines {
+		// Skip comments at start of file
+		if strings.HasPrefix(lines[i], "#") && startComments {
+			lines[i] ="#DISCARD"
+			continue
+		} else {
+			startComments = false
+		}
 
 		// Fix Code Blocks
 		if isInCodeBlock {
@@ -274,14 +282,10 @@ func translate(path string) {
 		Error.Fatal(err)
 	}
 
-	startComments := true
 	for _, l := range lines {
 
-		// Skip comments at start of file
-		if strings.HasPrefix(l, "#") && startComments {
+		if strings.HasPrefix(l,"#DISCARD"){
 			continue
-		} else {
-			startComments = false
 		}
 
 		// Achtung hack für tables
