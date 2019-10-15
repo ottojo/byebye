@@ -121,7 +121,7 @@ func translate(path string) {
 	headingRegex := regexp.MustCompile(`(=+) (.+) =+`)
 	linkRegex := regexp.MustCompile(`\[\[[^]]+]]`)
 	inlineCodeRegex := regexp.MustCompile(`{{{(.+?)}}}`)
-	attachmentRegex := regexp.MustCompile(`({{|\[\[)attachment:.+?(}}|]])`)
+	attachmentRegex := regexp.MustCompile(`(?m)({{|\[\[)attachment:.+?(}}|]])`)
 	codeBlockStartRegex := regexp.MustCompile(`(?m)^\s*{{{(?:#!highlight (.+))?$`)
 	codeBlockEndRegex := regexp.MustCompile(`(?m)^\s*}}}\s*$`)
 	tableRegex := regexp.MustCompile(`(?m)\|\|(?:<.+?>)?([^|\n]*)`)
@@ -137,7 +137,7 @@ func translate(path string) {
 	for i, _ := range lines {
 		// Skip comments at start of file
 		if strings.HasPrefix(lines[i], "#") && startComments {
-			lines[i] ="#DISCARD"
+			lines[i] = "#DISCARD"
 			continue
 		} else {
 			startComments = false
@@ -210,7 +210,7 @@ func translate(path string) {
 
 			if strings.Contains(link, "attachment:") {
 				Info.Printf("Link to attachment, ignoring.")
-				return s
+				return "[[" + s + "]]"
 			}
 
 			link, successful := findLink(path, link)
@@ -284,7 +284,7 @@ func translate(path string) {
 
 	for _, l := range lines {
 
-		if strings.HasPrefix(l,"#DISCARD"){
+		if strings.HasPrefix(l, "#DISCARD") {
 			continue
 		}
 
@@ -389,7 +389,7 @@ func getAttachment(path, name string) {
 
 		r, _ := ioutil.ReadAll(resp.Body)
 		Error.Println(string(r))
-		Error.Println("HTTP status code != 200")
+		Error.Println("Downloading attachment from " + attachmentUrl + " : HTTP status code != 200")
 		time.Sleep(10 * time.Second)
 		return
 	}
