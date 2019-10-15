@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"flag"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -18,14 +19,65 @@ var prefix = "carolo-cup"
 var mediaSuffixes = []string{".mp4", ".m4v", ".mov", ".webm", ".ogv", ".png", ".jpg", ".jpeg", ".gif", ".bmp"}
 
 var sessionCookie string
+var sessionCookieName string
+var wikiUrl string
+
+var logLevel int
+
+var (
+	Trace   *log.Logger
+	Info    *log.Logger
+	Warning *log.Logger
+	Error   *log.Logger
+)
+
+func initLog(traceHandle io.Writer, infoHandle io.Writer, warningHandle io.Writer, errorHandle io.Writer) {
+	Trace = log.New(traceHandle,
+		"TRACE: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+
+	Info = log.New(infoHandle,
+		"INFO: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+
+	Warning = log.New(warningHandle,
+		"WARNING: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+
+	Error = log.New(errorHandle,
+		"ERROR: ",
+		log.Ldate|log.Ltime|log.Lshortfile)
+}
 
 func init() {
-	flag.StringVar(&sessionCookie, "sessionCookie", "", "Session Cookie")
+	flag.StringVar(&sessionCookieName, "sessionCookieName", "MOIN_SESSION_443_ROOT_carolo-cup", "Session Cookie Name")
+	flag.StringVar(&sessionCookie, "sessionCookieValue", "", "Session Cookie Value")
+	flag.IntVar(&logLevel, "v", 2, "Log Level: 0 = Error, 1 = Warning, 2 = Info, 3 = Trace")
+	flag.StringVar(&prefix, "prefix", "carolo-cup", "Name of directory containing wiki files, must be same as wiki name")
+	flag.StringVar(&wikiUrl, "url", "https://wiki.stuve.uni-ulm.de", "Wiki URL without trailing slash")
 	flag.Parse()
 }
 
 func main() {
-	//log.SetOutput(ioutil.Discard)
+
+	switch logLevel {
+	case 0:
+		// Error
+		initLog(ioutil.Discard, ioutil.Discard, ioutil.Discard, os.Stderr)
+		break
+	case 1:
+		// Warning
+		initLog(ioutil.Discard, ioutil.Discard, os.Stdout, os.Stderr)
+		break
+	case 2:
+		// Info
+		initLog(ioutil.Discard, os.Stdout, os.Stdout, os.Stderr)
+		break
+	default:
+		// Trace
+		initLog(os.Stdout, os.Stdout, os.Stdout, os.Stderr)
+	}
+
 	err := filepath.Walk(prefix,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -41,20 +93,20 @@ func main() {
 				return nil
 			}
 
-			log.Println(path)
+			Info.Println(path)
 			translate(path)
 			return nil
 		})
 	if err != nil {
-		log.Println(err)
+		Error.Fatal(err)
 	}
 }
 
 func translate(path string) {
-	log.Println("Translating " + path)
+	Info.Println("Translating " + path)
 	file, err := os.Open(path)
 	if err != nil {
-		log.Fatal(err)
+		Error.Fatal(err)
 	}
 
 	scanner := bufio.NewScanner(file)
@@ -63,7 +115,7 @@ func translate(path string) {
 		lines = append(lines, scanner.Text())
 	}
 	if err := scanner.Err(); err != nil {
-		log.Fatal(err)
+		Error.Fatal(err)
 	}
 
 	headingRegex := regexp.MustCompile(`(=+) (.+) =+`)
@@ -80,10 +132,6 @@ func translate(path string) {
 	isInCodeBlock := false
 	isFirstTableRow := true
 	currentBaseIndent := -1
-
-	if strings.Contains(path, "Sensorplatine") {
-		log.Println("H")
-	}
 
 	for i, _ := range lines {
 
@@ -129,7 +177,7 @@ func translate(path string) {
 		// Fix Heading
 		headingMatches := headingRegex.FindStringSubmatch(lines[i])
 		if len(headingMatches) > 0 {
-			log.Println("Found Heading: " + lines[i])
+			Info.Println("Found Heading: " + lines[i])
 			newLine := ""
 			for i := 0; i < len(headingMatches[1]); i++ {
 				newLine = newLine + "#"
@@ -140,7 +188,7 @@ func translate(path string) {
 
 		// Fix Links
 		lines[i] = linkRegex.ReplaceAllStringFunc(lines[i], func(s string) string {
-			log.Println("Found link " + s)
+			Info.Println("Found link " + s)
 
 			s = strings.Trim(s, "[]")
 			name := s
@@ -150,16 +198,16 @@ func translate(path string) {
 				name = strings.TrimSpace(s[strings.Index(s, "|")+1:])
 			}
 
-			log.Printf("Link: \"%s\", Name: \"%s\"\n", link, name)
+			Info.Printf("Link: \"%s\", Name: \"%s\"\n", link, name)
 
 			if strings.Contains(link, "attachment:") {
-				log.Printf("Link to attachment, ignoring.")
+				Info.Printf("Link to attachment, ignoring.")
 				return s
 			}
 
 			link, successful := findLink(path, link)
 			if !successful {
-				log.Printf("Error finding link \"%s\"\n", link)
+				Warning.Printf("Error finding link \"%s\"\n", link)
 			}
 
 			return "[" + name + "](" + link + ")"
@@ -175,7 +223,7 @@ func translate(path string) {
 			if strings.Contains(s, "|") {
 				s = s[:strings.Index(s, "|")]
 			}
-			log.Println("Found attachment: " + s)
+			Info.Println("Found attachment: " + s)
 
 			var isMedia = false
 			for _, suffix := range mediaSuffixes {
@@ -186,7 +234,7 @@ func translate(path string) {
 			}
 
 			if isMedia {
-				log.Println("Attachment is media.")
+				Info.Println("Attachment is media.")
 			}
 
 			getAttachment(path, s)
@@ -195,7 +243,7 @@ func translate(path string) {
 			if isMedia {
 				s = "!" + s
 			}
-			log.Println("Translated to " + s)
+			Info.Println("Translated to " + s)
 			return s
 		})
 
@@ -223,7 +271,7 @@ func translate(path string) {
 
 	newFile, err := os.OpenFile(path, os.O_TRUNC|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatal(err)
+		Error.Fatal(err)
 	}
 
 	startComments := true
@@ -236,15 +284,13 @@ func translate(path string) {
 			startComments = false
 		}
 
-		// TODO comments
-
 		// Achtung hack für tables
 		if strings.Contains(l, "#TABLE-") {
 			num := l[strings.Index(l, "#TABLE-")+7:]
 			l = l[:strings.Index(l, "#TABLE-")]
 			numCols, err := strconv.Atoi(num)
 			if err != nil {
-				log.Fatal(err)
+				Error.Fatal(err)
 			}
 			l += "\n"
 			for i := 0; i < numCols; i++ {
@@ -256,7 +302,7 @@ func translate(path string) {
 
 		_, err := newFile.WriteString(l + "\n")
 		if err != nil {
-			log.Fatal(err)
+			Error.Fatal(err)
 		}
 
 	}
@@ -265,7 +311,7 @@ func translate(path string) {
 }
 
 func findLink(path, link string) (string, bool) {
-	log.Printf("Searching link %s\n", link)
+	Info.Printf("Searching link %s\n", link)
 	currentDir := path[:strings.LastIndex(path, "/")]
 	if link[0] == '/' {
 		// Try Relative
@@ -316,51 +362,47 @@ func getAttachment(path, name string) {
 	dir := path[:strings.LastIndex(path, "/")]
 	path = strings.TrimSuffix(path, ".md")
 	path = strings.TrimSuffix(path, "/index")
-	//path = url.QueryEscape(path)
-	//path = strings.Replace(path, "%2F", "/", -1)
-	//path = strings.Replace(path, "+", "%20", -1)
 	name = strings.TrimSpace(name)
 
-	log.Println("Path is " + path)
-	log.Println("Name is " + name)
-	attachmentUrl := "https://wiki.stuve.uni-ulm.de/" + path + "?action=AttachFile&do=get&target=" + name
-	log.Println("Url is " + attachmentUrl)
+	Info.Println("Path is " + path)
+	Info.Println("Name is " + name)
+	attachmentUrl := wikiUrl + "/" + path + "?action=AttachFile&do=get&target=" + name
+	Info.Println("Url is " + attachmentUrl)
 
 	req, err := http.NewRequest("GET", attachmentUrl, nil)
 	if err != nil {
-		log.Fatal(err)
+		Error.Fatal(err)
 	}
 	req.AddCookie(&http.Cookie{
-		Name:  "MOIN_SESSION_443_ROOT_carolo-cup",
+		Name:  sessionCookieName,
 		Value: sessionCookie,
 	})
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		Error.Fatal(err)
 	}
 	if resp.StatusCode != http.StatusOK {
 
 		r, _ := ioutil.ReadAll(resp.Body)
-		log.Println(string(r))
-		log.Println("ERROR: HTTP status code != 200")
-		//log.Fatal("http")
+		Error.Println(string(r))
+		Error.Println("HTTP status code != 200")
 		time.Sleep(10 * time.Second)
 		return
 	}
 
 	attachment, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal(err)
+		Error.Fatal(err)
 	}
-	log.Println("got attachment of size " + strconv.Itoa(len(attachment)))
-	log.Println("storing attachment at " + dir + "/" + name)
+	Info.Println("got attachment of size " + strconv.Itoa(len(attachment)))
+	Info.Println("storing attachment at " + dir + "/" + name)
 	if testFileExists(dir+"/"+name) == FILE {
-		log.Println("already exists")
+		Info.Println("already exists")
 		return
 	}
 	err = ioutil.WriteFile(dir+"/"+name, attachment, 0644)
 	if err != nil {
-		log.Fatal(err)
+		Error.Fatal(err)
 	}
 	time.Sleep(13 * time.Second)
 }
